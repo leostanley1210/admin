@@ -1,4 +1,4 @@
-name: Backend CI/CD
+name: Frontend CI/CD
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 env:
   CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
   GITHUB_REPO_NAME: ${{ github.repository }}
-
+  
   PREVIEW_PROJECT: preview
   STAGE_PROJECT: stage
   LIVE_PROJECT: live
@@ -23,20 +23,22 @@ env:
   harbor_live_pass: ${{ secrets.harbor_live_pass }}
 
 jobs:
-  backend-build:
+  frontend-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up JDK
-        uses: actions/setup-java@v3
+      - name: Install Node.js
+        uses: actions/setup-node@v3
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          node-version: '18'
 
-      - name: Run Spotless Check
-        run: ./gradlew spotlessCheck
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Prettier Check
+        run: npm run prettier:check   # ensure you have a script in package.json
 
       - name: Determine branch & environment
         run: |
