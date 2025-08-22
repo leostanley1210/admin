@@ -1,13 +1,14 @@
-# Stage 1: Build React app
+# Stage 1: Build Vite app
 FROM node:18-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npm run build
+RUN npm run build   # outputs to 'dist' folder
 
 # Stage 2: Serve with NGINX
 FROM nginx:stable-alpine
+
 RUN addgroup -S cloudops && adduser -S cloudops -G cloudops
 RUN mkdir -p /tmp/nginx_temp/client_temp \
              /tmp/nginx_temp/proxy_temp \
@@ -17,8 +18,8 @@ RUN mkdir -p /tmp/nginx_temp/client_temp \
              /var/cache/nginx && \
     chown -R cloudops:cloudops /usr/share/nginx /etc/nginx /tmp/nginx_temp /var/cache/nginx
 
-# Copy built React app
-COPY --from=builder /app/build /usr/share/nginx/html
+# Copy built app from Vite
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/nginx.conf
 USER cloudops
