@@ -1,0 +1,100 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+
+env:
+  CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
+  GITHUB_REPO_NAME: ${{ github.repository }}
+  
+  PREVIEW_PROJECT: preview
+  STAGE_PROJECT: stage
+  LIVE_PROJECT: live
+
+  harbor_preview_user: ${{ secrets.harbor_preview_user }}
+  harbor_preview_pass: ${{ secrets.harbor_preview_pass }}
+  harbor_stage_user: ${{ secrets.harbor_stage_user }}
+  harbor_stage_pass: ${{ secrets.harbor_stage_pass }}
+  harbor_live_user: ${{ secrets.harbor_live_user }}
+  harbor_live_pass: ${{ secrets.harbor_live_pass }}
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Ensure Prettier is installed
+        run: |
+          if ! npm list --depth=0 | grep prettier; then
+            echo "Prettier not found. Installing..."
+            npm install --save-dev prettier
+          fi
+
+      - name: Run Prettier Check
+        run: |
+          if ! npm run | grep "prettier:check"; then
+            echo "prettier:check script not found. Creating temporary script..."
+            npx prettier --check 'src/**/*.{js,ts,jsx,tsx,css,scss,html,json}'
+          else
+            npm run prettier:check
+          fi
+
+      - name: Determine branch & environment
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
+
+          if [[ "$BRANCH_NAME" != "main" ]]; then
+            ENV_NAME="preview"
+            HARBOR_PROJECT="$PREVIEW_PROJECT"
+            IMAGE_TAG=$(echo "$BRANCH_NAME" | sed -E 's#^[^/]+/([0-9]+_[a-z0-9-]+)#\1#' | tr '_' '-')-preview
+            HARBOR_USER=$harbor_preview_user
+            HARBOR_PASS=$harbor_preview_pass
+          elif [[ "$GITHUB_REF" =~ refs/tags/ ]]; then
+            ENV_NAME="live"
+            HARBOR_PROJECT="$LIVE_PROJECT"
+            IMAGE_TAG="${GITHUB_REF#refs/tags/}"
+            HARBOR_USER=$harbor_live_user
+            HARBOR_PASS=$harbor_live_pass
+          else
+            ENV_NAME="stage"
+            HARBOR_PROJECT="$STAGE_PROJECT"
+            IMAGE_TAG="stage"
+            HARBOR_USER=$harbor_stage_user
+            HARBOR_PASS=$harbor_stage_pass
+          fi
+
+          COMPONENT_NAME=$(echo "$BRANCH_NAME" | sed -E 's#[^a-zA-Z0-9]+#-#g' | tr '[:upper:]' '[:lower:]')
+          echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+          echo "HARBOR_PROJECT=$HARBOR_PROJECT" >> $GITHUB_ENV
+          echo "COMPONENT_NAME=$COMPONENT_NAME" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "HARBOR_USER=$HARBOR_USER" >> $GITHUB_ENV
+          echo "HARBOR_PASS=$HARBOR_PASS" >> $GITHUB_ENV
+
+      - name: Login to Harbor
+        run: echo "$HARBOR_PASS" | docker login $CONTAINER_REGISTRY -u $HARBOR_USER --password-stdin
+
+      - name: Build Docker Image
+        run: |
+          IMAGE=$CONTAINER_REGISTRY/$HARBOR_PROJECT/$COMPONENT_NAME:$IMAGE_TAG
+          docker build -t $IMAGE .
+
+      - name: Push Docker Image
+        run: |
+          IMAGE=$CONTAINER_REGISTRY/$HARBOR_PROJECT/$COMPONENT_NAME:$IMAGE_TAG
+          docker push $IMAGE
