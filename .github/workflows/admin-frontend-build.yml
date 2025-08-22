@@ -29,56 +29,50 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Ensure Prettier is installed
-        run: |
-          if ! npm list --depth=0 | grep prettier; then
-            echo "Prettier not found. Installing..."
-            npm install --save-dev prettier
-          fi
+      - name: Build React/Vite App
+        run: npm run build
 
-      - name: Run Prettier Check
-        run: |
-          if ! npm run | grep "prettier:check"; then
-            echo "prettier:check script not found. Creating temporary script..."
-            npx prettier --check 'src/**/*.{js,ts,jsx,tsx,css,scss,html,json}'
-          else
-            npm run prettier:check
-          fi
-
-      - name: Determine branch & environment
+      - name: Determine branch & Harbor environment
         run: |
           BRANCH_NAME=${GITHUB_REF#refs/heads/}
-          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
+          TAG_NAME=${GITHUB_REF#refs/tags/}
 
-          if [[ "$BRANCH_NAME" != "main" ]]; then
-            ENV_NAME="preview"
-            HARBOR_PROJECT="$PREVIEW_PROJECT"
-            IMAGE_TAG=$(echo "$BRANCH_NAME" | sed -E 's#^[^/]+/([0-9]+_[a-z0-9-]+)#\1#' | tr '_' '-')-preview
-            HARBOR_USER=$harbor_preview_user
-            HARBOR_PASS=$harbor_preview_pass
-          elif [[ "$GITHUB_REF" =~ refs/tags/ ]]; then
+          # Default component name = repo name
+          COMPONENT_NAME=$(basename $GITHUB_REPO_NAME)
+          COMPONENT_NAME=$(echo "$COMPONENT_NAME" | tr '[:upper:]' '[:lower:]')
+
+          if [[ "$TAG_NAME" != "$GITHUB_REF" ]]; then
+            # Triggered by tag → live
             ENV_NAME="live"
             HARBOR_PROJECT="$LIVE_PROJECT"
-            IMAGE_TAG="${GITHUB_REF#refs/tags/}"
+            IMAGE_TAG="$TAG_NAME"
             HARBOR_USER=$harbor_live_user
             HARBOR_PASS=$harbor_live_pass
-          else
+          elif [[ "$BRANCH_NAME" == "main" ]]; then
+            # Main branch without tag → stage
             ENV_NAME="stage"
             HARBOR_PROJECT="$STAGE_PROJECT"
             IMAGE_TAG="stage"
             HARBOR_USER=$harbor_stage_user
             HARBOR_PASS=$harbor_stage_pass
+          else
+            # Feature or other branch → preview
+            ENV_NAME="preview"
+            HARBOR_PROJECT="$PREVIEW_PROJECT"
+            IMAGE_TAG=$(echo "$BRANCH_NAME" | sed -E 's#[^a-zA-Z0-9]+#-#g' | tr '[:upper:]' '[:lower:]')-preview
+            HARBOR_USER=$harbor_preview_user
+            HARBOR_PASS=$harbor_preview_pass
           fi
 
-          COMPONENT_NAME=$(echo "$BRANCH_NAME" | sed -E 's#[^a-zA-Z0-9]+#-#g' | tr '[:upper:]' '[:lower:]')
           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
           echo "HARBOR_PROJECT=$HARBOR_PROJECT" >> $GITHUB_ENV
           echo "COMPONENT_NAME=$COMPONENT_NAME" >> $GITHUB_ENV
